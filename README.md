@@ -74,6 +74,54 @@ npm run build:all       # 同时出两个（推荐）
 | `src-tauri/tauri.conf.json` | `offlineInstaller` | 内嵌完整 WebView2 运行时（205 MB） |
 | `src-tauri/tauri.conf.online.json` | `embedBootstrapper` | 内嵌 1.8 MB 引导程序，安装时在线下载 |
 
+## 离线构建
+
+默认构建会从 crates.io 拉取依赖。仓库**不包含** `src-tauri/vendor/`（约 680 MB 的依赖镜像），因此首次在无外网环境构建时，需要先在一台能联网的机器上把依赖固化下来。
+
+### 第一步：在联网环境生成依赖镜像
+
+```bash
+cd src-tauri
+cargo vendor vendor
+```
+
+该命令会拉取 `Cargo.lock` 中锁定的全部依赖到 `src-tauri/vendor/`，并打印一段配置样例。
+
+### 第二步：启用镜像源
+
+在 `src-tauri/.cargo/config.toml` 中写入（该文件默认不在仓库中，因为它指向的 vendor 目录不提交）：
+
+```toml
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+```
+
+`vendor/` 已在 `.gitignore` 中排除，不必也不应提交。
+
+### 第三步：离线构建
+
+把整个项目目录（含 `vendor/`）拷到目标机器，直接执行：
+
+```bash
+npm run build:all
+```
+
+此时 cargo 只从 `vendor/` 读取依赖，全程不访问网络。
+
+### 额外的离线依赖
+
+| 依赖 | 说明 |
+|---|---|
+| Rust 工具链 1.99.1 | 由 `rust-toolchain.toml` 指定，需提前 `rustup toolchain install 1.99.1` |
+| `node_modules/` | `npm install` 生成，可整体拷贝 |
+| NSIS 打包工具 | 首次打包时 tauri-bundler 下载到 `%LOCALAPPDATA%\tauri\NSIS\`，约 6.8 MB，可提前拷贝 |
+| WebView2 运行时 | 离线包构建时需要，缓存在 `%LOCALAPPDATA%\tauri\` |
+
+只想产出去网络依赖的**离线安装包**（自带 WebView2）用 `npm run build:offline` 即可，它的“离线”指安装环境无需联网，与构建环境是否联网无关。
+
 ## 目录结构
 
 ```
@@ -84,7 +132,9 @@ html-ppt-editor/
 │   ├── capabilities/           # 权限配置
 │   ├── tauri.conf.json         # 离线包配置
 │   ├── tauri.conf.online.json  # 在线包配置
-│   └── rust-toolchain.toml     # 固定 Rust 版本
+│   ├── rust-toolchain.toml     # 固定 Rust 版本
+│   ├── vendor/                 # 离线依赖镜像（不进仓库，自行 cargo vendor 生成）
+│   └── .cargo/config.toml      # 离线构建时自建，指向 vendor/
 ├── build-all.ps1               # 双模式打包脚本
 └── THIRD-PARTY-NOTICES.md      # 第三方组件版权申明
 ```
